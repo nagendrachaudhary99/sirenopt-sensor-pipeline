@@ -2,14 +2,14 @@
 
 [![ci](https://github.com/nagendrachaudhary99/sirenopt-sensor-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/nagendrachaudhary99/sirenopt-sensor-pipeline/actions/workflows/ci.yml)
 
-Real-time materials-sensing platforms (SirenOpt's is one - instruments watch
-plasma emissions during manufacturing and turn them into live material
-measurements) depend on a pipeline that acquires from many sensors at once,
-validates every frame, flags anomalies live, and never silently drops or
-corrupts a reading. This is a host-runnable version of that pipeline shape:
-multiple sensors emit framed binary readings, one lock-free SPSC ring per
-sensor feeds a processing thread, and validated frames land in a binary log
-that an independent Python tool re-analyzes.
+Real-time materials-sensing platforms (SirenOpt's is one - their PlasmaSens
+uses cold atmospheric plasma for real-time, non-destructive material
+analysis in manufacturing) depend on a pipeline that acquires from many
+sensors at once, validates every frame, flags anomalies live, and never
+silently drops or corrupts a reading. This is a host-runnable version of
+that pipeline shape: multiple sensors emit framed binary readings, one
+lock-free SPSC ring per sensor feeds a processing thread, and validated
+frames land in a binary log that an independent Python tool re-analyzes.
 
 Built by Nagendra Chaudhary. Architecture, the concurrency bug the stress
 test caught, tradeoffs, failure handling, and the scaling path are in
