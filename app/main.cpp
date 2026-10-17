@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <random>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -25,14 +26,24 @@ int main(int argc, char** argv) {
     const int sensors = argc > 1 ? std::atoi(argv[1]) : 4;
     const int frames_per_sensor = argc > 2 ? std::atoi(argv[2]) : 2000;
     const char* log_path = argc > 3 ? argv[3] : "pipeline.binlog";
+    const int sleep_us = argc > 4 ? std::atoi(argv[4]) : 50;  // 0 = full speed
 
-    SpscRing<Frame> ring(1 << 12);
+    // One SPSC ring PER SENSOR: a single-producer ring cannot be shared by
+    // multiple acquisition threads (two producers racing try_push lose
+    // frames). The consumer drains all rings in round-robin order.
+    std::vector<std::unique_ptr<SpscRing<Frame>>> rings;
+    rings.reserve(sensors);
+    for (int s = 0; s < sensors; ++s)
+        rings.push_back(std::make_unique<SpscRing<Frame>>(1 << 12));
     Processor proc;
     Counters counters{};
     LogWriter log(log_path);
     if (!log.ok()) { std::fprintf(stderr, "cannot open %s\n", log_path); return 1; }
 
-    std::atomic<int> dropped{0};
+    // Backpressure policy: producers BLOCK (yield + retry) when their ring
+    // is full rather than overwriting or dropping data. push_stalls counts
+    // how often that happened, so the tradeoff is visible in the run summary.
+    std::atomic<uint64_t> push_stalls{0};
     std::atomic<bool> done{false};
 
     std::vector<std::thread> producers;
@@ -50,11 +61,13 @@ int main(int argc, char** argv) {
                 if (i == static_cast<uint32_t>(frames_per_sensor) / 2) reading += 30.0f;
                 std::memcpy(f.payload.data(), &reading, 4);
                 f.seal();
-                while (!ring.try_push(f)) {
+                while (!rings[s]->try_push(f)) {
                     if (done.load(std::memory_order_acquire)) return;
+                    push_stalls.fetch_add(1, std::memory_order_relaxed);
                     std::this_thread::yield();
                 }
-                std::this_thread::sleep_for(std::chrono::microseconds(50));
+                if (sleep_us > 0)
+                    std::this_thread::sleep_for(std::chrono::microseconds(sleep_us));
             }
         });
     }
@@ -62,8 +75,14 @@ int main(int argc, char** argv) {
     std::thread consumer([&] {
         Frame f;
         int idle = 0;
+        size_t next = 0;
         while (!done.load(std::memory_order_acquire) || idle < 1000) {
-            if (ring.try_pop(f)) {
+            bool got = false;
+            for (size_t k = 0; k < rings.size(); ++k) {  // round-robin drain
+                const size_t i = (next + k) % rings.size();
+                if (rings[i]->try_pop(f)) { next = i + 1; got = true; break; }
+            }
+            if (got) {
                 idle = 0;
                 if (proc.ingest(f, counters)) log.append(f);
             } else {
@@ -86,6 +105,8 @@ int main(int argc, char** argv) {
                 (unsigned long long)counters.anomalies);
     for (int s = 0; s < sensors; ++s)
         std::printf("sensor %d: mean=%.3f stddev=%.3f\n", s, proc.mean(s), proc.stddev(s));
+    std::printf("push_stalls=%llu (producer backpressure events; policy: block, never drop)\n",
+                (unsigned long long)push_stalls.load());
     std::printf("log=%s (%llu valid frames)\n", log_path, (unsigned long long)counters.ok);
     return 0;
 }
