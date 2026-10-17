@@ -2,9 +2,9 @@
 
 ## Problem
 
-Real-time materials-sensing platforms (SirenOpt's is one: instruments watch
-plasma emissions during manufacturing and turn them into live material
-measurements) live or die on their data pipeline. Sensors emit framed binary
+Real-time materials-sensing platforms (SirenOpt's is one: their PlasmaSens
+probes materials with cold atmospheric plasma for real-time,
+non-destructive analysis) live or die on their data pipeline. Sensors emit framed binary
 readings continuously; the host has to acquire from many sensors at once,
 validate every frame, compute live statistics, flag anomalies as they
 happen, and store everything for later analysis. A pipeline that corrupts a
